@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 API_SERVER = "https://api.bgm.tv"
 LOAD_WAIT_MS = 1000  # 请求之间的等待时间，单位为毫秒
 ACCESS_TOKEN = os.getenv("BGM_ACCESS_TOKEN")  # 从环境变量中获取访问令牌
-USERNAME = ""  # 存储用户名
+USERNAME = os.getenv("BGM_USERNAME")  # 存储用户名
 
 # 使用Bearer令牌进行API请求，返回JSON响应
 def get_json_with_bearer_token(url):
@@ -61,7 +61,7 @@ def load_user_collections():
     endpoint = f"{API_SERVER}/v0/users/{USERNAME}/collections"
     collections = load_data_until_finish(endpoint, name="用户收藏", show_progress=True)
     logging.info(f"加载了 {len(collections)} 个收藏")
-    with open("collections.json", "w", encoding="u8") as f:
+    with open("collection.json", "w", encoding="u8") as f:
         json.dump(collections, f, ensure_ascii=False, indent=4)
     return collections
 
@@ -78,7 +78,7 @@ def main():
     user = load_user()
     collections = load_user_collections()
     takeout_data = {"meta": {"generated_at": time.time(), "user": user}, "data": collections}
-    with open("takeout.json", "w", encoding="u8") as f:
+    with open("collection_list.json", "w", encoding="u8") as f:
         json.dump(takeout_data, f, ensure_ascii=False, indent=4)
     logging.info("完成")
 
