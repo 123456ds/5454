@@ -1,5 +1,3 @@
-#适用与增量更新，每天自动拉起最新修改的50条游戏收藏数据。
-
 import requests
 import json
 import os
