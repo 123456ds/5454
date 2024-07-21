@@ -3,9 +3,11 @@ import csv
 import json
 import time
 import os
+import pandas as pd
+from openpyxl import load_workbook
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from tqdm import tqdm  # 进度条
+from tqdm import tqdm
 
 def saferequestvndb(proxy, method, url, json=None, headers=None):
     session = requests.Session()
@@ -27,7 +29,6 @@ def saferequestvndb(proxy, method, url, json=None, headers=None):
             return saferequestvndb(proxy, method, url, json, headers)
         elif resp.status_code == 400:
             print(resp.text)
-            # 400 搜索失败
         else:
             if method.upper() in ["GET", "POST"]:
                 try:
@@ -91,7 +92,6 @@ class VNDBSync:
         self.headers = {
             "Authorization": f"Token {self.config['Token']}",
         }
-        self.use_second_column = self.config.get("use_second_column", False)
         self.sync_local = self.config.get("sync_local", False)
         self.download_vndb = self.config.get("download_vndb", False)
 
@@ -122,14 +122,17 @@ class VNDBSync:
                 break
         return collectresults
 
-    def upload_game(self, vid):
+    def upload_game(self, vid, labels_set, vote=None, finished=None):
+        data = {"labels_set": labels_set}
+        if vote:
+            data["vote"] = vote
+        if finished:
+            data["finished"] = finished
         saferequestvndb(
             self.proxy,
             "PATCH",
             f"ulist/v{vid}",
-            json={
-                "labels_set": [1],
-            },
+            json=data,
             headers=self.headers,
         )
 
@@ -137,57 +140,133 @@ class VNDBSync:
         collectresults = self.querylist(True)
         return collectresults
 
-    def upload_game_list(self, game_titles):
+    def upload_game_list(self, game_data):
         vids = [int(item["id"][1:]) for item in self.querylist(False)]
         failed_uploads = []
         
-        for title in tqdm(game_titles, desc="Uploading games"):
+        for game in tqdm(game_data, desc="Uploading games"):
+            title, labels_set, vote, finished = game
             vid = getidbytitle_(self.proxy, title)
-            if vid and int(vid[1:]) not in vids:
+            if vid:
                 try:
-                    self.upload_game(int(vid[1:]))
+                    self.upload_game(int(vid[1:]), labels_set, vote, finished)
                 except Exception as e:
                     print(f"Failed to upload game '{title}': {e}")
-                    failed_uploads.append(title)
+                    failed_uploads.append(game)
+            else:
+                print(f"Failed to find ID for game '{title}'")
+                failed_uploads.append(game)
         
         return failed_uploads
 
-def read_local_game_data(file_path, use_second_column=False):
-    game_titles = []
-    with open(file_path, mode='r', encoding='utf-8') as file:
-        reader = csv.reader(file)
-        next(reader)  # Skip the header
-        for row in reader:
-            if use_second_column and row[1].strip():  # If the second column is not empty
-                game_titles.append(row[1].strip())
-            else:  # If the second column is empty, use the first column
-                game_titles.append(row[0].strip())
-    return game_titles
+def read_local_game_data(file_path):
+    _, file_extension = os.path.splitext(file_path)
+    game_data = []
+    
+    if file_extension == ".xlsx":
+        df = pd.read_excel(file_path)
+        for _, row in df.iterrows():
+            title = row.iloc[1] if pd.notna(row.iloc[1]) else row.iloc[0]
+            finished = None
+            if pd.notna(row.iloc[5]):
+                try:
+                    finished_date = pd.to_datetime(row.iloc[5])
+                    finished = finished_date.strftime('%Y-%m-%d')
+                except ValueError:
+                    finished = row.iloc[5]
+            vote = int(row.iloc[6] * 10) if pd.notna(row.iloc[6]) else None
+            status_map = {
+                "想看": [5],
+                "在看": [1],
+                "看过": [2],
+                "搁置": [3],
+                "抛弃": [4]
+            }
+            labels_set = status_map.get(row.iloc[10], [])
+            game_data.append((title, labels_set, vote, finished))
+
+    elif file_extension == ".csv":
+        with open(file_path, mode='r', encoding='utf-8') as file:
+            reader = csv.reader(file)
+            next(reader)
+            for row in reader:
+                if row[2].strip() == "游戏":
+                    title = row[0]
+                    finished = row[5].replace('/', '-') if row[5].strip() else None
+                    vote = int(row[9].strip()) * 10 if row[9].strip() != "(无评分)" else None
+                    status_map = {
+                        "想看": [5],
+                        "在看": [1],
+                        "看过": [2],
+                        "搁置": [3],
+                        "抛弃": [4]
+                    }
+                    labels_set = status_map.get(row[4], [])
+                    game_data.append((title, labels_set, vote, finished))
+
+    elif file_extension == ".json":
+        with open(file_path, 'r', encoding='utf-8') as file:
+            data = json.load(file)
+            if "data" not in data:
+                print("Error: JSON data does not contain 'data' key.")
+                raise ValueError("Expected list of game data, but got an invalid structure.")
+            for item in data["data"]:
+                if item.get("subject_type") == 4:
+                    title = item["subject"]["name"]
+                    finished = item["updated_at"].split('T')[0]
+                    vote = int(item["rate"]) * 10 if item["rate"] != 0 else None
+                    status_map = {
+                        1: [5],
+                        2: [2],
+                        3: [1],
+                        4: [3],
+                        5: [4]
+                    }
+                    labels_set = status_map.get(item["type"], [])
+                    game_data.append((title, labels_set, vote, finished))
+    
+    print(f"Read {len(game_data)} game entries from local data file: {file_path}")
+    return game_data
 
 def save_failed_uploads(failed_uploads, file_path):
     with open(file_path, mode='w', encoding='utf-8') as file:
         writer = csv.writer(file)
-        writer.writerow(["Failed Uploads"])
-        for title in failed_uploads:
-            writer.writerow([title])
+        writer.writerow(["Title", "Labels Set", "Vote", "Finished"])
+        for game in failed_uploads:
+            writer.writerow(game)
 
 if __name__ == "__main__":
     script_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(script_dir, "config.json")
-    local_game_data_path = os.path.join(script_dir, "local_game_data.csv")
+    
+    local_game_data_path = None
+    for extension in [".xlsx", ".csv", ".json"]:
+        for file_name in os.listdir(script_dir):
+            if file_name == "config.json":
+                continue
+            if file_name.endswith(extension):
+                local_game_data_path = os.path.join(script_dir, file_name)
+                break
+        if local_game_data_path:
+            break
+
+    if not local_game_data_path:
+        raise FileNotFoundError("No game data file found in .xlsx, .csv, or .json format.")
+    else:
+        print(f"Found local game data file: {local_game_data_path}")
+    
     failed_uploads_path = os.path.join(script_dir, "failed_uploads.csv")
 
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file not found: {config_path}")
-    if not os.path.exists(local_game_data_path):
-        raise FileNotFoundError(f"Local game data file not found: {local_game_data_path}")
 
     sync = VNDBSync(config_path)
     
-    game_titles = read_local_game_data(local_game_data_path, sync.use_second_column)
+    game_data = read_local_game_data(local_game_data_path)
+    print(f"Read {len(game_data)} game entries from local data.")
 
     if sync.sync_local:
-        failed_uploads = sync.upload_game_list(game_titles)
+        failed_uploads = sync.upload_game_list(game_data)
         if failed_uploads:
             save_failed_uploads(failed_uploads, failed_uploads_path)
             print(f"Failed uploads saved to: {failed_uploads_path}")
