@@ -9,9 +9,36 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from tqdm import tqdm
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+
+# 锁用于控制API请求速率
+rate_limit_lock = threading.Lock()
+requests_per_interval = 200
+interval_seconds = 300
+requests_made = 0
+interval_start_time = time.time()
 
 # 安全请求函数，用于处理VNDB API的请求
 def saferequestvndb(proxy, method, url, json=None, headers=None):
+    global requests_made, interval_start_time
+
+    with rate_limit_lock:
+        current_time = time.time()
+        if current_time - interval_start_time >= interval_seconds:
+            interval_start_time = current_time
+            requests_made = 0
+
+        if requests_made >= requests_per_interval:
+            time_to_wait = interval_seconds - (current_time - interval_start_time)
+            if time_to_wait > 0:
+                print(f"Rate limit reached, sleeping for {time_to_wait:.2f} seconds.")
+                time.sleep(time_to_wait)
+            interval_start_time = time.time()
+            requests_made = 0
+
+        requests_made += 1
+
     session = requests.Session()
     retries = Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
     session.mount('https://', HTTPAdapter(max_retries=retries))
@@ -154,25 +181,34 @@ class VNDBSync:
     def upload_game_list(self, game_data):
         failed_uploads = []
         
-        for i in tqdm(range(self.current_index, len(game_data)), desc="上传游戏数据"): 
-            game = game_data[i]
-            title, title_cn, labels_set, vote, finished = game
-            vid = getidbytitle_(self.proxy, title, title_cn)
-            if vid:
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_game = {executor.submit(self.upload_single_game, game, i): game for i, game in enumerate(game_data[self.current_index:], start=self.current_index)}
+            
+            for future in tqdm(as_completed(future_to_game), total=len(future_to_game), desc="上传游戏数据"):
+                game = future_to_game[future]
                 try:
-                    self.upload_game(int(vid[1:]), labels_set, vote, finished)
-                    self.current_index = i + 1
-                    self.save_progress()
+                    future.result()
                 except Exception as e:
-                    print(f"记录失败的上传 '{title}': {e}") 
+                    print(f"记录失败的上传 '{game[0]}': {e}") 
                     failed_uploads.append(game)
                     self.save_failed_uploads([game])
-            else:
-                print(f"找不到ID '{title}'") 
-                failed_uploads.append(game)
-                self.save_failed_uploads([game])
         
         return failed_uploads
+
+    def upload_single_game(self, game, index):
+        title, title_cn, labels_set, vote, finished = game
+        vid = getidbytitle_(self.proxy, title, title_cn)
+        if vid:
+            try:
+                self.upload_game(int(vid[1:]), labels_set, vote, finished)
+                self.current_index = index + 1
+                self.save_progress()
+            except Exception as e:
+                print(f"记录失败的上传 '{title}': {e}") 
+                self.save_failed_uploads([game])
+        else:
+            print(f"找不到ID '{title}'") 
+            self.save_failed_uploads([game])
 
     # 保存进度
     def save_progress(self):
@@ -298,9 +334,9 @@ if __name__ == "__main__":
         failed_uploads = sync.upload_game_list(game_data)
         if failed_uploads:
             sync.save_failed_uploads(failed_uploads)
-            print(f"Failed uploads saved to: {sync.failed_uploads_path}")
+            print(f"失败的上传保存到: {sync.failed_uploads_path}") 
     
     if sync.download_vndb:
         downloaded_list = sync.download_game_list()
-        print("Downloaded List:")
+        print("下载列表:")
         print(downloaded_list)
