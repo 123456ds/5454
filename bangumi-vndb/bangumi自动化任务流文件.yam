@@ -24,9 +24,9 @@ jobs:
         pip install requests pandas openpyxl tqdm
 
     - name: 运行 BGM 脚本获取收藏
-      run: python bangumi-vndb/bangumi.py
+      run: python bangumi-vndb/bangumi.py #修改路径及文件名称
       env:
-        BGM_ACCESS_TOKEN: ${{ secrets.BGM_ACCESS_TOKEN }}
+        BGM_ACCESS_TOKEN: ${{ secrets.BGM_ACCESS_TOKEN }} #Actions secrets and variables里添加参数
 
     - name: 移动收藏列表到预期位置
       run: mv collection_list.json bangumi-vndb/collection_list.json
@@ -41,10 +41,10 @@ jobs:
       run: ls -R
 
     - name: 运行 VNDB 脚本同步收藏
-      run: python ./bangumi-vndb/VNDB.py
+      run: python ./bangumi-vndb/VNDB.py #修改路径及文件名称
       env:
-        VNDB_TOKEN: ${{ secrets.VNDB_TOKEN }}
-        SYNC_LOCAL: true
-        DOWNLOAD_VNDB: false
-        HTTP_PROXY: ${{ secrets.HTTP_PROXY }}
-        HTTPS_PROXY: ${{ secrets.HTTPS_PROXY }}
+        VNDB_TOKEN: ${{ secrets.VNDB_TOKEN }}   #Actions secrets and variables里添加参数
+        SYNC_LOCAL: true                        #Actions secrets and variables里添加参数
+        DOWNLOAD_VNDB: false                    #Actions secrets and variables里添加参数
+        HTTP_PROXY: ${{ secrets.HTTP_PROXY }}   #Actions secrets and variables里添加参数
+        HTTPS_PROXY: ${{ secrets.HTTPS_PROXY }} #Actions secrets and variables里添加参数
