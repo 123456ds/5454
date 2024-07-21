@@ -2,9 +2,9 @@
 
 使用[bangumi collection export tool](https://greasyfork.org/zh-CN/scripts/408988-bangumi-collection-export-tool/feedback) 或[bangumi-takeout-py](https://github.com/jerrylususu/bangumi-takeout-py) 导出收藏记录同步到[VNDB](https://vndb.org/)。
 
-默认Token保存在config.json；默认.csv文件名称为local_game_data.csv；与脚本在同一目录。
+默认Token保存在config.json；默认数据文件与脚本在同一目录。
 
-默认读取.csv文件，优先使用第二列的游戏标题进行搜索，如果第二列为空，则使用第一列的游戏标题。
+默认读取.xlsx文件。
 
 默认标记状态为【完成】，修改 "labels_set": [1], 可以标记为其他状态。
 
@@ -23,7 +23,6 @@ config.json
 ```sh
 {
     "Token": "your_token_here",  
-    "use_second_column": true,  #优先使用第二列的游戏标题进行搜索，如果第二列为空，则使用第一列的游戏标题。
     "sync_local": true,         #同步本地记录到 VNDB。
     "download_vndb": true       #从 VNDB 下载记录。
 }
