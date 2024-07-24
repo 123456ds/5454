@@ -16,7 +16,7 @@ import threading
 rate_limit_lock = threading.Lock()
 requests_per_interval = 200
 interval_seconds = 300
-requests_made = 0
+requests_made = 10
 interval_start_time = time.time()
 
 # 安全请求函数，用于处理VNDB API的请求
