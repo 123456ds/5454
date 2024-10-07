@@ -1,9 +1,9 @@
 name: 班固米游戏收藏数据同步更新到VNDB
 
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: '0 1 * * *' # 每天定时运行
+#on:
+#  workflow_dispatch:
+#  schedule:
+#    - cron: '0 1 * * *' # 每天定时运行
 
 jobs:
   sync:
